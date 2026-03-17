@@ -1,0 +1,91 @@
+(program
+  ;; context.t2 — BuildContext passed to rule actions.
+
+  (import {cpSync} "node:fs")
+  (import {readFile writeFile} "node:fs/promises")
+  (import {execFile} "node:child_process")
+  (import {promisify} "node:util")
+
+  (import-type (named PosixPath) "./paths.t2")
+  (import {toNative} "./paths.t2")
+  (import-type (named NodeId GraphNode) "./graph.t2")
+  (import {BuildGraph addEdge} "./graph.t2")
+  (import-type (named LogEntry) "./log.t2")
+  (import {LogWriter} "./log.t2")
+  (import {BuildError} "./errors.t2")
+
+  (const execFileAsync (promisify execFile))
+
+  ;; ── RunResult ──────────────────────────────────
+  (interface RunResult
+    (RunResult
+      (stdout string)
+      (stderr string)))
+
+  (export-named (RunResult))
+
+  ;; ── BuildContext ───────────────────────────────
+  (export (class BuildContext
+    (class-body
+      (field (graph : BuildGraph))
+      (field (nodeId : NodeId))
+      (field (projectRoot : string))
+      (field (logWriter : LogWriter))
+
+      (constructor ((graph : BuildGraph) (nodeId : NodeId) (projectRoot : string) (logWriter : LogWriter))
+        (set! (. this graph) graph)
+        (set! (. this nodeId) nodeId)
+        (set! (. this projectRoot) projectRoot)
+        (set! (. this logWriter) logWriter))
+
+      ;; Run an external tool
+      (method async run ((tool : string) (args : (type-array string))) (returns (type-app Promise RunResult))
+        ((. (. this logWriter) write) (object
+          (kind "command-run") (rule (. this nodeId)) (tool tool) (args args) (time (Date.now))))
+        (let (result : any) null)
+        (try
+          (set! result (await (execFileAsync tool args (object (cwd (. this projectRoot))))))
+          (catch e
+            (const (err : any) e)
+            (throw (new BuildError (. this nodeId) tool (|| (. err stderr) (. err stdout) (. err message) "unknown error")))))
+        (return (object (stdout (. result stdout)) (stderr (. result stderr)))))
+
+      ;; Copy files/directories
+      (method async copy ((src : PosixPath) (dest : PosixPath)) (returns (type-app Promise void))
+        ((. (. this logWriter) write) (object
+          (kind "file-copy") (rule (. this nodeId)) (src src) (dest dest) (time (Date.now))))
+        (cpSync
+          (toNative src (. this projectRoot))
+          (toNative dest (. this projectRoot))
+          (object (recursive true))))
+
+      ;; Read a file
+      (method async readFile ((p : PosixPath)) (returns (type-app Promise string))
+        ((. (. this logWriter) write) (object
+          (kind "file-read") (rule (. this nodeId)) (path p) (time (Date.now))))
+        (return (await (readFile (toNative p (. this projectRoot)) "utf-8"))))
+
+      ;; Write a file
+      (method async writeFile ((p : PosixPath) (data : string)) (returns (type-app Promise void))
+        ((. (. this logWriter) write) (object
+          (kind "file-write") (rule (. this nodeId)) (path p) (time (Date.now))))
+        (await (writeFile (toNative p (. this projectRoot)) data)))
+
+      ;; Get native absolute path
+      (method resolve ((p : PosixPath)) (returns string)
+        (return (toNative p (. this projectRoot))))
+
+      ;; Dynamic dependency: add edge discovered at build time.
+      (method addDep ((dep : any)) (returns void)
+        (let (depId : string) "unknown")
+        (if (=== (. dep kind) "file")
+          (then (set! depId (+ "file:" (. dep path)))))
+        (if (=== (. dep kind) "rule")
+          (then (set! depId (+ "rule:" (. dep name)))))
+        (if (=== (. dep kind) "env")
+          (then (set! depId (+ "env:" (. dep key)))))
+        (if (=== (. dep kind) "tool")
+          (then (set! depId (+ "tool:" (. dep name)))))
+        (addEdge (. this graph) (. this nodeId) depId)
+        ((. (. this logWriter) write) (object
+          (kind "dep-edge") (from (. this nodeId)) (to depId) (time (Date.now)))))))))

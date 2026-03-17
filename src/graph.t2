@@ -1,0 +1,47 @@
+(program
+  ;; graph.t2 — Build graph data structure.
+
+  (import-type (named PosixPath) "./paths.t2")
+  (import-type (named Hash) "./hash.t2")
+  (import-type (named BuildEnvironment) "./env.t2")
+
+  ;; ── Types ──────────────────────────────────────
+
+  (type NodeId string)
+  (export-named (NodeId))
+
+  (interface GraphNode
+    (GraphNode
+      (id NodeId)
+      (kind string)
+      (path? PosixPath)
+      (hash (union Hash null))
+      (lastBuilt (union number null))))
+
+  (export-named (GraphNode))
+
+  ;; ── BuildGraph ─────────────────────────────────
+
+  (export (class BuildGraph
+    (class-body
+      (field (env : (union BuildEnvironment null)) null)
+      (field (nodes : (type-app Map NodeId GraphNode)) (new Map))
+      (field (edges : (type-app Map NodeId (type-app Set NodeId))) (new Map))
+      (field (rules : (type-app Map string any)) (new Map)))))
+
+  ;; ── Helpers ────────────────────────────────────
+
+  (export (fn addEdge ((graph : BuildGraph) (from : NodeId) (to : NodeId)) : void
+    (if (! ((. (. graph edges) has) from))
+      (then ((. (. graph edges) set) from (new Set))))
+    ((. ((. (. graph edges) get) from) add) to)))
+
+  (export (fn ensureSourceNode ((graph : BuildGraph) (id : NodeId) (nodePath : PosixPath)) : void
+    (if (! ((. (. graph nodes) has) id))
+      (then
+        ((. (. graph nodes) set) id (object
+          (id id)
+          (kind "source")
+          (path nodePath)
+          (hash null)
+          (lastBuilt null))))))))

@@ -1,0 +1,44 @@
+(program
+  ;; errors.t2 — Error types for MiniShake
+
+  ;; ── BuildError ─────────────────────────────────
+  ;; Thrown when a rule's action fails.
+
+  (export (class BuildError
+    (extends Error)
+    (class-body
+      (field (nodeId : string))
+      (field (tool : string))
+      (field (detail : string))
+      (constructor ((nodeId : string) (tool : string) (detail : string))
+        (super (+ "rule " nodeId " failed: " tool " — " detail))
+        (set! (. this name) "BuildError")
+        (set! (. this nodeId) nodeId)
+        (set! (. this tool) tool)
+        (set! (. this detail) detail)))))
+
+  ;; ── CycleError ─────────────────────────────────
+  ;; Thrown when a dependency cycle is detected.
+
+  (export (class CycleError
+    (extends Error)
+    (class-body
+      (field (cyclePath : (type-array string)))
+      (constructor ((message : string) (cyclePath : (type-array string)))
+        (super (+ message ": " ((. cyclePath join) " → ")))
+        (set! (. this name) "CycleError")
+        (set! (. this cyclePath) cyclePath)))))
+
+  ;; ── collectCyclePath ───────────────────────────
+  ;; Reconstruct a cycle path from the visiting set.
+
+  (export (fn collectCyclePath ((visiting : (type-app Set string)) (nodeId : string)) : (type-array string)
+    (const (result : (type-array string)) (array))
+    (let (found : boolean) false)
+    ((. visiting forEach) (fn ((id : string))
+      (if (|| found (=== id nodeId))
+        (then
+          (set! found true)
+          ((. result push) id)))))
+    ((. result push) nodeId)
+    (return result))))

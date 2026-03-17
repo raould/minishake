@@ -1,0 +1,65 @@
+(program
+  ;; explain.t2 — Explain why a node is stale.
+
+  (import-type (named NodeId GraphNode) "./graph.t2")
+  (import {BuildGraph} "./graph.t2")
+  (import {refreshSourceHash} "./build.t2")
+
+  ;; ── explainStaleness ───────────────────────────
+
+  (export (fn explainStaleness ((currentGraph : BuildGraph) (prevGraph : (union BuildGraph null)) (nodeId : NodeId)) : void
+    (const (node) ((. (. currentGraph nodes) get) nodeId))
+    (if (! node)
+      (then
+        ((. console log) (+ "ERROR: unknown node " nodeId))
+        (return)))
+
+    (if (! prevGraph)
+      (then
+        ((. console log) (+ nodeId " — never built (no previous graph)"))
+        (return)))
+
+    (const (prev) ((. (. prevGraph nodes) get) nodeId))
+    (if (! prev)
+      (then
+        ((. console log) (+ nodeId " — never built (new rule)"))
+        (return)))
+
+    (const (currentDeps) (?? ((. (. currentGraph edges) get) nodeId) (new Set)))
+    (const (prevDeps) (?? ((. (. prevGraph edges) get) nodeId) (new Set)))
+
+    ;; structural changes: deps added or removed
+    (let (changed : number) 0)
+
+    (for-of d (Array.from currentDeps)
+      (if (! ((. prevDeps has) d))
+        (then
+          ((. console log) (+ "  ADDED dep: " d))
+          (set! changed (+ changed 1)))))
+
+    (for-of d (Array.from prevDeps)
+      (if (! ((. currentDeps has) d))
+        (then
+          ((. console log) (+ "  REMOVED dep: " d))
+          (set! changed (+ changed 1)))))
+
+    ;; content changes: deps whose hash differs
+    (for-of depId (Array.from currentDeps)
+      (const (depNode) ((. (. currentGraph nodes) get) depId))
+      (const (prevDepNode) ((. (. prevGraph nodes) get) depId))
+
+      (if (! prevDepNode)
+        (then
+          ((. console log) (+ "  NEW: " depId))
+          (set! changed (+ changed 1)))
+        (else
+          (if (!== (. depNode hash) (. prevDepNode hash))
+            (then
+              ((. console log) (+ "  CHANGED: " depId))
+              ((. console log) (+ "    was: " (. prevDepNode hash)))
+              ((. console log) (+ "    now: " (. depNode hash)))
+              (set! changed (+ changed 1)))))))
+
+    (if (&& (=== changed 0) (=== (. currentDeps size) (. prevDeps size)))
+      (then ((. console log) (+ nodeId " — CURRENT (all " (. currentDeps size) " deps unchanged)")))
+      (else ((. console log) (+ "  (" changed " of " (. currentDeps size) " deps changed)")))))))

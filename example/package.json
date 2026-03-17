@@ -1,0 +1,16 @@
+{
+  "name": "example",
+  "version": "0.0.1",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "dist/uses.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/uses.js"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.2"
+  }
+}

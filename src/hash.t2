@@ -1,0 +1,41 @@
+(program
+  ;; hash.t2 — Hashing utilities for content-addressed staleness detection.
+
+  (import {createHash} "node:crypto")
+  (import {readFileSync existsSync} "node:fs")
+  (import {execFileSync} "node:child_process")
+  (import path "node:path")
+
+  ;; ── Type ───────────────────────────────────────
+  (type Hash string)
+  (export-named (Hash))
+
+  ;; ── hashBytes ──────────────────────────────────
+  (export (fn hashBytes ((data : (union string Buffer))) : Hash
+    (const (h) (createHash "sha256"))
+    ((. h update) data)
+    (return ((. h digest) "hex"))))
+
+  ;; ── hashFileContents ───────────────────────────
+  (export (fn hashFileContents ((nativePath : string)) : Hash
+    (const (contents) (readFileSync nativePath))
+    (return (hashBytes contents))))
+
+  ;; ── hashString ─────────────────────────────────
+  (export (fn hashString ((s : string)) : Hash
+    (return (hashBytes s))))
+
+  ;; ── hashToolVersion ────────────────────────────
+  ;; Uses execFileSync (array form) to avoid shell injection.
+  ;; Tries node_modules/.bin/<name> first (local project tools), then bare name.
+  (export (fn hashToolVersion ((name : string)) : Hash
+    (let (bin : string) name)
+    (const (localBin : string) ((. path join) (process.cwd) "node_modules" ".bin" name))
+    (if (existsSync localBin)
+      (then (set! bin localBin)))
+    (let (result : Buffer) (Buffer.from ""))
+    (try
+      (set! result (execFileSync bin (array "--version")))
+      (catch e
+        (throw (new Error (+ "tool '" name "' not found or --version failed")))))
+    (return (hashBytes ((. result toString) "utf-8"))))))

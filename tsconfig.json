@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "rootDir": "./build/ts",
+    "outDir": "./dist",
+    "module": "nodenext",
+    "target": "es2022",
+    "strict": false,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "skipLibCheck": true,
+    "moduleDetection": "force",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"]
+  },
+  "include": ["build/ts/**/*.ts"]
+}

@@ -1,0 +1,57 @@
+(program
+  ;; log.t2 — Structured JSONL logging for build runs.
+
+  (import {mkdirSync openSync appendFileSync closeSync} "node:fs")
+  (import path "node:path")
+
+  (import-type (named PosixPath) "./paths.t2")
+  (import-type (named Hash) "./hash.t2")
+
+  ;; ── NodeId type alias ──────────────────────────
+  (type NodeId string)
+  (export-named (NodeId))
+
+  ;; ── LogEntry ───────────────────────────────────
+  ;; Broad interface for all log event types.
+  ;; Each entry has a `type` discriminator field.
+
+  (interface LogEntry
+    (LogEntry
+      (kind string)
+      (time number)
+      (rule? string)
+      (path? string)
+      (src? string)
+      (dest? string)
+      (tool? string)
+      (args? (type-array string))
+      (from? string)
+      (to? string)
+      (hash? string)
+      (status? string)
+      (key? string)
+      (version? string)))
+
+  (export-named (LogEntry))
+
+  ;; ── LogWriter ──────────────────────────────────
+  ;; Appends JSONL entries to .shk/logs/run-<timestamp>.jsonl
+
+  (export (class LogWriter
+    (class-body
+      (field (fd : number))
+      (field (filePath : string))
+
+      (constructor ((projectRoot : string))
+        (const (timestamp : string)
+          ((. ((. (new Date) toISOString)) replace) (new RegExp "[:.\\-]" "g") ""))
+        (set! (. this filePath)
+          ((. path join) projectRoot ".shk" "logs" (+ "run-" timestamp ".jsonl")))
+        (mkdirSync ((. path dirname) (. this filePath)) { recursive: true })
+        (set! (. this fd) (openSync (. this filePath) "a")))
+
+      (method write ((entry : LogEntry))
+        (appendFileSync (. this fd) (+ (JSON.stringify entry) "\n")))
+
+      (method close ()
+        (closeSync (. this fd)))))))

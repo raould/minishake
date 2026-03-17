@@ -1,0 +1,46 @@
+(program
+  ;; loader.t2 — Build file loading and rule collection.
+
+  (import {pathToFileURL} "node:url")
+  (import path "node:path")
+
+  (import-type (named PosixPath) "./paths.t2")
+  (import-type (named Rule Dep) "./rule.t2")
+
+  ;; Workaround: t2 has no dynamic import() expression.
+  ;; Use Function constructor to access it without conflicting with the keyword.
+  (const dynamicImport (type-as (new Function "specifier" "return import(specifier)") (tfn ((specifier string)) (type-app Promise any))))
+
+  ;; ── RuleCollector ──────────────────────────────
+  ;; Captures rule definitions from a build file module.
+
+  (export (class RuleCollector
+    (class-body
+      (field (rules : (type-array Rule)) (array))
+
+      (method rule ((def : Rule)) (returns void)
+        ;; validate: name must be unique
+        (if ((. (. this rules) some) (fn ((r : Rule)) (return (=== (. r name) (. def name)))))
+          (then (throw (new Error (+ "duplicate rule name: " (. def name))))))
+        ;; validate: output must be non-empty
+        (if (! (. def output))
+          (then (throw (new Error (+ "rule " (. def name) " has no output")))))
+        ((. (. this rules) push) def)))))
+
+  ;; ── loadBuildFile ──────────────────────────────
+  ;; Loads a build file (.ts or .js) and returns the collected rules.
+  ;; MVP: plain .ts/.js that exports a default function receiving a RuleCollector.
+
+  (export loadBuildFile (async-fn ((filePath : string) (projectRoot : string))
+    (const (absPath : string) ((. path resolve) projectRoot filePath))
+    (const (fileUrl : string) ((. (pathToFileURL absPath) toString)))
+    (const (mod : any) (await (dynamicImport fileUrl)))
+
+    (const (collector) (new RuleCollector))
+
+    ;; The module should export a default function that registers rules
+    (if (! (. mod default))
+      (then (throw (new Error (+ "build file " filePath " must export a default function")))))
+    (await ((. mod default) collector))
+
+    (return (. collector rules)))))

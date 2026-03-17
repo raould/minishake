@@ -1,0 +1,26 @@
+{
+  "name": "minishake",
+  "version": "0.0.1",
+  "description": "a build system",
+  "license": "CC0-1.0",
+  "author": "",
+  "type": "module",
+  "main": "./dist/cli.js",
+  "bin": {
+    "shk": "./dist/cli.js"
+  },
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "bootstrap": "node bootstrap.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "t2lang": "file:../t2lang"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^6.0.2"
+  }
+}

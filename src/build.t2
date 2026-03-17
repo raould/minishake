@@ -1,0 +1,148 @@
+(program
+  ;; build.t2 — Build execution (demand-driven, depth-first).
+
+  (import-type (named PosixPath) "./paths.t2")
+  (import {toNative} "./paths.t2")
+  (import-type (named Hash) "./hash.t2")
+  (import {hashFileContents hashString hashToolVersion hashBytes} "./hash.t2")
+  (import-type (named NodeId GraphNode) "./graph.t2")
+  (import {BuildGraph} "./graph.t2")
+  (import-type (named Rule) "./rule.t2")
+  (import {LogWriter} "./log.t2")
+  (import {BuildContext} "./context.t2")
+  (import {saveGraph loadGraph} "./persist.t2")
+  (import {probeEnvironment validateEnvironment} "./env.t2")
+  (import {CycleError collectCyclePath} "./errors.t2")
+  (import {existsSync} "node:fs")
+
+  ;; ── refreshSourceHash ──────────────────────────
+
+  (export (fn refreshSourceHash ((node : GraphNode) (projectRoot : string)) : void
+    (if ((. (. node id) startsWith) "file:")
+      (then
+        (const (filePath : string) ((. (. node id) slice) 5))
+        (const (nativePath : string) (toNative (type-as filePath PosixPath) projectRoot))
+        (if (! (existsSync nativePath))
+          (then (throw (new Error (+ "source file not found: " filePath)))))
+        (set! (. node hash) (hashFileContents nativePath))))
+    (if ((. (. node id) startsWith) "env:")
+      (then
+        (const (key : string) ((. (. node id) slice) 4))
+        (set! (. node hash) (hashString (?? (index (. process env) key) "")))))
+    (if ((. (. node id) startsWith) "tool:")
+      (then
+        (const (name : string) ((. (. node id) slice) 5))
+        (set! (. node hash) (hashToolVersion name))))))
+
+  ;; ── refreshAllSourceHashes ─────────────────────
+
+  (export (fn refreshAllSourceHashes ((graph : BuildGraph) (projectRoot : string)) : void
+    ((. (. graph nodes) forEach) (fn ((node : GraphNode))
+      (if (=== (. node kind) "source")
+        (then (refreshSourceHash node projectRoot)))))))
+
+  ;; ── computeInputHash ───────────────────────────
+
+  (fn computeInputHash ((graph : BuildGraph) (nodeId : NodeId)) : Hash
+    (const (deps) (?? ((. (. graph edges) get) nodeId) (new Set)))
+    (const (sortedDeps) ((. (Array.from deps) sort)))
+    (const (parts : (type-array string)) (array))
+    (for-of depId sortedDeps
+      (const (depNode) ((. (. graph nodes) get) depId))
+      ((. parts push) depId)
+      ((. parts push) (?? (. depNode hash) "null")))
+    ;; include rule structural identity
+    (const (rule) ((. (. graph rules) get) ((. nodeId replace) "rule:" "")))
+    (if rule
+      (then
+        ((. parts push) (. rule output))
+        ((. parts push) (JSON.stringify (. rule deps)))))
+    (return (hashBytes ((. parts join) "\0"))))
+
+  ;; ── rebuild ────────────────────────────────────
+
+  (const doRebuild (async-fn ((graph : BuildGraph) (prev : (union BuildGraph null)) (nodeId : NodeId)
+                              (visiting : (type-app Set string)) (visited : (type-app Set string))
+                              (logWriter : LogWriter) (projectRoot : string))
+    (if ((. visited has) nodeId) (then (return)))
+
+    ;; cycle detection
+    (if ((. visiting has) nodeId)
+      (then (throw (new CycleError "dependency cycle detected" (collectCyclePath visiting nodeId)))))
+
+    ((. visiting add) nodeId)
+    (const (node) ((. (. graph nodes) get) nodeId))
+
+    ;; source nodes: just refresh hash
+    (if (=== (. node kind) "source")
+      (then
+        (refreshSourceHash node projectRoot)
+        ((. visiting delete) nodeId)
+        ((. visited add) nodeId)
+        (return)))
+
+    ;; rule nodes: rebuild deps first
+    (const (deps) (?? ((. (. graph edges) get) nodeId) (new Set)))
+    (for-of depId (Array.from deps)
+      (await (doRebuild graph prev depId visiting visited logWriter projectRoot)))
+
+    ;; check staleness
+    (const (inputHash) (computeInputHash graph nodeId))
+    (let (prevNode : any) null)
+    (if (&& prev ((. (. prev nodes) has) nodeId))
+      (then (set! prevNode ((. (. prev nodes) get) nodeId))))
+
+    (if (&& prevNode (=== (. prevNode hash) inputHash))
+      (then
+        ;; cache hit
+        (set! (. node hash) (. prevNode hash))
+        (set! (. node lastBuilt) (. prevNode lastBuilt))
+        ((. logWriter write) (object (kind "cache-hit") (rule nodeId) (hash inputHash) (time (Date.now))))
+        ((. visiting delete) nodeId)
+        ((. visited add) nodeId)
+        (return)))
+
+    ;; stale — execute rule action
+    (const (ruleName : string) ((. nodeId replace) "rule:" ""))
+    (const (rule : any) ((. (. graph rules) get) ruleName))
+    ((. logWriter write) (object (kind "rule-start") (rule nodeId) (time (Date.now))))
+    ((. logWriter write) (object (kind "cache-miss") (rule nodeId) (hash inputHash) (time (Date.now))))
+
+    (const (ctx) (new BuildContext graph nodeId projectRoot logWriter))
+    (try
+      (await ((. rule action) ctx))
+      (set! (. node hash) inputHash)
+      (set! (. node lastBuilt) (Date.now))
+      ((. logWriter write) (object (kind "rule-end") (rule nodeId) (time (Date.now)) (status "ok")))
+      (catch e
+        ((. logWriter write) (object (kind "rule-end") (rule nodeId) (time (Date.now)) (status "error")))
+        (throw e)))
+
+    ((. visiting delete) nodeId)
+    ((. visited add) nodeId)))
+
+  ;; ── build ──────────────────────────────────────
+
+  (export build (async-fn ((graph : BuildGraph) (targetName : string) (projectRoot : string))
+    (const (targetId : NodeId) (+ "rule:" targetName))
+    (if (! ((. (. graph nodes) has) targetId))
+      (then (throw (new Error (+ "unknown rule: " targetName)))))
+
+    ;; load persisted graph for hash comparison
+    (const (graphPath : string) (+ projectRoot "/.shk/graph/build-graph.json"))
+    (const (previousHashes) (loadGraph graphPath))
+
+    ;; validate environment
+    (if previousHashes
+      (then
+        (const (currentEnv) (probeEnvironment projectRoot))
+        (validateEnvironment (type-as (. previousHashes env) any) currentEnv)))
+
+    (const (logWriter) (new LogWriter projectRoot))
+    (try
+      (const (visiting : (type-app Set string)) (new Set))
+      (const (visited : (type-app Set string)) (new Set))
+      (await (doRebuild graph previousHashes targetId visiting visited logWriter projectRoot))
+      (finally
+        (saveGraph graph graphPath)
+        ((. logWriter close)))))))

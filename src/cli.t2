@@ -1,0 +1,73 @@
+(program
+  ;; cli.t2 — CLI entry point for MiniShake.
+
+  (import {rmSync} "node:fs")
+  (import path "node:path")
+
+  (import {BuildGraph} "./graph.t2")
+  (import {buildGraphFromRules} "./rule.t2")
+  (import {build refreshAllSourceHashes} "./build.t2")
+  (import {loadGraph} "./persist.t2")
+  (import {loadBuildFile} "./loader.t2")
+  (import {explainStaleness} "./explain.t2")
+  (import {emitMermaid} "./mermaid.t2")
+
+  ;; ── main ───────────────────────────────────────
+
+  (const main (async-fn ()
+    (const (args) ((. (. process argv) slice) 2))
+    (const (command : string) (?? (index args 0) ""))
+    (const (targetName : string) (?? (index args 1) ""))
+    (const (projectRoot : string) (process.cwd))
+
+    (if (=== command "build")
+      (then
+        (if (! targetName)
+          (then
+            ((. console error) "usage: shk build <target>")
+            ((. process exit) 1)))
+        ;; MVP: look for build.ts or build.js in project root
+        (let (buildFile : string) "build.ts")
+        (const (rules) (await (loadBuildFile buildFile projectRoot)))
+        (const (graph) (buildGraphFromRules rules projectRoot))
+        (await (build graph targetName projectRoot))
+        ((. console log) (+ "✓ " targetName " built successfully"))))
+
+    (if (=== command "graph")
+      (then
+        (const (prevGraph) (loadGraph ((. path join) projectRoot ".shk/graph/build-graph.json")))
+        (if (! prevGraph)
+          (then
+            ((. console error) "no graph yet — run shk build first")
+            ((. process exit) 1)))
+        (const (outPath : string) ((. path join) projectRoot ".shk/graph/last-run.mmd"))
+        (emitMermaid prevGraph outPath)
+        ((. console log) (+ "graph written to " outPath))))
+
+    (if (=== command "explain")
+      (then
+        (if (! targetName)
+          (then
+            ((. console error) "usage: shk explain <target>")
+            ((. process exit) 1)))
+        (let (buildFile : string) "build.ts")
+        (const (rules) (await (loadBuildFile buildFile projectRoot)))
+        (const (currentGraph) (buildGraphFromRules rules projectRoot))
+        (refreshAllSourceHashes currentGraph projectRoot)
+        (const (prevGraph) (loadGraph ((. path join) projectRoot ".shk/graph/build-graph.json")))
+        (explainStaleness currentGraph prevGraph (+ "rule:" targetName))))
+
+    (if (=== command "clean")
+      (then
+        (rmSync ((. path join) projectRoot ".shk") (object (recursive true) (force true)))
+        ((. console log) "cleaned .shk/")))
+
+    (if (=== command "")
+      (then
+        ((. console log) "usage: shk <build|graph|explain|clean> [target]")
+        ((. process exit) 1)))))
+
+  ;; run
+  ((. (main) catch) (fn ((e : any))
+    ((. console error) (. e message))
+    ((. process exit) 1))))

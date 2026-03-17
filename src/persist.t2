@@ -1,0 +1,83 @@
+(program
+  ;; persist.t2 — Graph persistence (JSON, atomic write via rename).
+
+  (import {existsSync readFileSync writeFileSync mkdirSync renameSync} "node:fs")
+  (import path "node:path")
+
+  (import-type (named NodeId GraphNode) "./graph.t2")
+  (import {BuildGraph} "./graph.t2")
+
+  ;; ── Graph version ──────────────────────────────
+  (const GRAPH_VERSION 1)
+  (export-named (GRAPH_VERSION))
+
+  ;; ── saveGraph ──────────────────────────────────
+  ;; Persists the graph to disk. Rules map is NOT serialized (actions are functions).
+
+  (export (fn saveGraph ((graph : BuildGraph) (graphPath : string)) : void
+    (const (nodesObj : (type-app Record string any)) (object))
+    ((. (. graph nodes) forEach) (fn ((node : GraphNode) (id : NodeId))
+      (set! (index nodesObj id) (object
+        (kind (. node kind))
+        (path (. node path))
+        (hash (. node hash))
+        (lastBuilt (. node lastBuilt))))))
+
+    (const (edgesObj : (type-app Record string (type-array string))) (object))
+    ((. (. graph edges) forEach) (fn ((tos : (type-app Set NodeId)) (from : NodeId))
+      (set! (index edgesObj from) (Array.from tos))))
+
+    (const (data) (object
+      (version GRAPH_VERSION)
+      (env (. graph env))
+      (nodes nodesObj)
+      (edges edgesObj)))
+
+    (mkdirSync ((. path dirname) graphPath) (object (recursive true)))
+    ;; atomic write: write to temp file, then rename
+    (const (tmpPath : string) (+ graphPath ".tmp"))
+    (writeFileSync tmpPath (JSON.stringify data null 2))
+    (renameSync tmpPath graphPath)))
+
+  ;; ── loadGraph ──────────────────────────────────
+  ;; Loads a persisted graph. Returns null if missing or incompatible.
+
+  (export (fn loadGraph ((graphPath : string)) : (union BuildGraph null)
+    (if (! (existsSync graphPath))
+      (then (return null)))
+
+    (let (data : any) null)
+    (try
+      (set! data (JSON.parse (readFileSync graphPath "utf-8")))
+      (catch e
+        (const (err : Error) (type-as e Error))
+        ((. console warn) (+ "corrupted graph file, starting fresh: " (. err message)))
+        (return null)))
+
+    ;; version gate
+    (if (!== (. data version) GRAPH_VERSION)
+      (then
+        ((. console warn)
+          (+ "graph version mismatch (file: " (. data version)
+             ", expected: " GRAPH_VERSION ") — starting fresh"))
+        (return null)))
+
+    (const (graph) (new BuildGraph))
+    (set! (. graph env) (. data env))
+
+    (for-of entry (Object.entries (. data nodes))
+      (const (id : string) (index entry 0))
+      (const (nodeData : any) (index entry 1))
+      ((. (. graph nodes) set) id (object
+        (id id)
+        (kind (. nodeData kind))
+        (path (. nodeData path))
+        (hash (. nodeData hash))
+        (lastBuilt (. nodeData lastBuilt)))))
+
+    (for-of entry (Object.entries (. data edges))
+      (const (from : string) (index entry 0))
+      (const (tos : any) (index entry 1))
+      ((. (. graph edges) set) from (new Set (type-as tos (type-array string)))))
+
+    (return graph))))

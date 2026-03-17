@@ -1,0 +1,27 @@
+(program
+  ;; paths.t2 — PosixPath branded type and conversion utilities.
+
+  (import path "node:path")
+
+  ;; ── Branded type ───────────────────────────────
+  (type PosixPath (intersect string (PosixPathBrand (__brand (tlit "PosixPath")))))
+  (export-named (PosixPath))
+
+  ;; ── toPosix ────────────────────────────────────
+  ;; Convert any raw path string to a project-relative POSIX path.
+
+  (export (fn toPosix ((raw : string) (projectRoot : string)) : PosixPath
+    (let (rel : string) ((. path relative) projectRoot ((. path resolve) projectRoot raw)))
+    ;; normalize separators to forward slash
+    (set! rel ((. ((. rel split) (. path sep)) join) "/"))
+    ;; collapse . and .. segments
+    (set! rel ((. (. path posix) normalize) rel))
+    ;; unicode NFC normalization
+    (set! rel ((. rel normalize) "NFC"))
+    (return (type-as rel PosixPath))))
+
+  ;; ── toNative ───────────────────────────────────
+  ;; Convert a PosixPath back to a native absolute path.
+
+  (export (fn toNative ((p : PosixPath) (projectRoot : string)) : string
+    (return ((. path resolve) projectRoot p)))))

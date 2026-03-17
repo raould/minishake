@@ -1,0 +1,99 @@
+(program
+  ;; rule.t2 — Rule definitions and graph construction from rules.
+
+  (import {globSync} "node:fs")
+
+  (import-type (named PosixPath) "./paths.t2")
+  (import {toPosix} "./paths.t2")
+  (import-type (named Hash) "./hash.t2")
+  (import {hashFileContents hashString hashToolVersion} "./hash.t2")
+  (import-type (named BuildEnvironment) "./env.t2")
+  (import {probeEnvironment} "./env.t2")
+  (import-type (named NodeId GraphNode) "./graph.t2")
+  (import {BuildGraph addEdge ensureSourceNode} "./graph.t2")
+
+  ;; ── Dep type ───────────────────────────────────
+  ;; Discriminated union for dependency kinds.
+
+  (interface Dep
+    (Dep
+      (kind string)
+      (path? PosixPath)
+      (pattern? string)
+      (name? string)
+      (key? string)))
+
+  (export-named (Dep))
+
+  ;; ── Rule interface ─────────────────────────────
+
+  (interface Rule
+    (Rule
+      (name string)
+      (output PosixPath)
+      (deps (type-array Dep))
+      (action (tfn ((ctx any)) (type-app Promise void)))))
+
+  (export-named (Rule))
+
+  ;; ── buildGraphFromRules ────────────────────────
+  ;; Constructs a fresh BuildGraph from an array of rules.
+
+  (export (fn buildGraphFromRules ((rules : (type-array Rule)) (projectDir : string)) : BuildGraph
+    (const (graph) (new BuildGraph))
+    (set! (. graph env) (probeEnvironment projectDir))
+
+    (for-of rule rules
+      ;; create the output node
+      (const (ruleNodeId : NodeId) (+ "rule:" (. rule name)))
+      ((. (. graph nodes) set) ruleNodeId (object
+        (id ruleNodeId)
+        (kind "rule")
+        (path (. rule output))
+        (hash null)
+        (lastBuilt null)))
+      ((. (. graph rules) set) (. rule name) rule)
+
+      ;; create edges from output → each dependency
+      (for-of dep (. rule deps)
+        (if (=== (. dep kind) "file")
+          (then
+            (const (depId : NodeId) (+ "file:" (. dep path)))
+            (ensureSourceNode graph depId (type-as (. dep path) PosixPath))
+            (addEdge graph ruleNodeId depId)))
+
+        (if (=== (. dep kind) "glob")
+          (then
+            (const (matches) (globSync (type-as (. dep pattern) string) (object (cwd projectDir))))
+            (for-of match matches
+              (const (posixPath) (toPosix (type-as match string) projectDir))
+              (const (depId : NodeId) (+ "file:" posixPath))
+              (ensureSourceNode graph depId posixPath)
+              (addEdge graph ruleNodeId depId))))
+
+        (if (=== (. dep kind) "rule")
+          (then
+            (const (depId : NodeId) (+ "rule:" (. dep name)))
+            (addEdge graph ruleNodeId depId)))
+
+        (if (=== (. dep kind) "env")
+          (then
+            (const (depId : NodeId) (+ "env:" (. dep key)))
+            ((. (. graph nodes) set) depId (object
+              (id depId)
+              (kind "source")
+              (hash (hashString (?? (index (. process env) (type-as (. dep key) string)) "")))
+              (lastBuilt null)))
+            (addEdge graph ruleNodeId depId)))
+
+        (if (=== (. dep kind) "tool")
+          (then
+            (const (depId : NodeId) (+ "tool:" (. dep name)))
+            ((. (. graph nodes) set) depId (object
+              (id depId)
+              (kind "source")
+              (hash (hashToolVersion (type-as (. dep name) string)))
+              (lastBuilt null)))
+            (addEdge graph ruleNodeId depId)))))
+
+    (return graph))))

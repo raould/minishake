@@ -1,0 +1,36 @@
+(program
+  ;; mermaid.t2 — Export build graph as Mermaid diagram.
+
+  (import {mkdirSync writeFileSync} "node:fs")
+  (import path "node:path")
+
+  (import-type (named NodeId GraphNode) "./graph.t2")
+  (import {BuildGraph} "./graph.t2")
+
+  ;; ── sanitize ───────────────────────────────────
+  ;; Mermaid node IDs can't contain colons or slashes.
+
+  (fn sanitize ((id : string)) : string
+    (return ((. id replace) (new RegExp "[^a-zA-Z0-9_]" "g") "_")))
+
+  ;; ── emitMermaid ────────────────────────────────
+
+  (export (fn emitMermaid ((graph : BuildGraph) (outPath : string)) : void
+    (const (lines : (type-array string)) (array "graph LR"))
+
+    ;; emit nodes with labels
+    ((. (. graph nodes) forEach) (fn ((node : GraphNode) (id : NodeId))
+      (const (label : string) (?? (. node path) id))
+      (let (shape : string) "")
+      (if (=== (. node kind) "source")
+        (then (set! shape (+ "([" label "])")))
+        (else (set! shape (+ "[[" label "]]"))))
+      ((. lines push) (+ "  " (sanitize id) shape))))
+
+    ;; emit edges
+    ((. (. graph edges) forEach) (fn ((tos : (type-app Set NodeId)) (from : NodeId))
+      (for-of to (Array.from tos)
+        ((. lines push) (+ "  " (sanitize from) " --> " (sanitize to))))))
+
+    (mkdirSync ((. path dirname) outPath) (object (recursive true)))
+    (writeFileSync outPath ((. lines join) "\n")))))

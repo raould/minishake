@@ -28,14 +28,25 @@
   ;; ── hashToolVersion ────────────────────────────
   ;; Uses execFileSync (array form) to avoid shell injection.
   ;; Tries node_modules/.bin/<name> first (local project tools), then bare name.
+  ;; Falls back to hashing the binary file itself if --version fails.
   (export (fn hashToolVersion ((name : string)) : Hash
     (let (bin : string) name)
     (const (localBin : string) ((. path join) (process.cwd) "node_modules" ".bin" name))
     (if (existsSync localBin)
       (then (set! bin localBin)))
-    (let (result : Buffer) (Buffer.from ""))
+    ;; try --version first
+    (let (versionOutput : string) "")
+    (let (versionOk : boolean) false)
     (try
-      (set! result (execFileSync bin (array "--version")))
+      (const (result : Buffer) (execFileSync bin (array "--version") (object (stdio "pipe"))))
+      (set! versionOutput ((. result toString) "utf-8"))
+      (set! versionOk true)
       (catch e
-        (throw (new Error (+ "tool '" name "' not found or --version failed")))))
-    (return (hashBytes ((. result toString) "utf-8"))))))
+        (set! versionOk false)))
+    (if versionOk
+      (then (return (hashBytes versionOutput))))
+    ;; fallback: hash the resolved binary file
+    (if (existsSync bin)
+      (then (return (hashFileContents bin))))
+    ;; nothing worked
+    (throw (new Error (+ "tool '" name "' not found"))))))

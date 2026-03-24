@@ -1,24 +1,18 @@
 # Dependencies
 node_modules/
 
-# Build output
-dist/
-*.js
-*.js.map
-*.d.ts
+# Build intermediates (not committed)
+build/
+.shk/
 debug_*.mjs
 tmp_*
 
-# Keep scripts
-!/scripts
-!/scripts/*.js
+# dist/ IS committed (bootstrap invariant — see IMPL.md §17.5)
+# So we do NOT ignore dist/
 
-# Keep bin
-!/bin
-!/bin/*.js
-
-# Keep source files
-!jest.config.js
+# Keep root build scripts
+!bootstrap.js
+!build.ts
 
 # Test coverage
 coverage/
@@ -38,13 +32,9 @@ Thumbs.db
 *.log
 npm-debug.log*
 
-# Package lock (optional - some prefer to commit this)
+# Package lock
 package-lock.json
 
 # Compiled test output
 *.t2.ts
 *.t2.ts.map
-
-# No example left-overs.
-example*.ts
-example*.js

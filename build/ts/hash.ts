@@ -22,12 +22,23 @@ export function hashToolVersion(name: string): Hash {
   if (existsSync(localBin)) {
     bin = localBin;
   }
-  let result: Buffer = Buffer.from("");
+  let versionOutput: string = "";
+  let versionOk: boolean = false;
   try {
-    result = execFileSync(bin, ["--version"]);
+    const result: Buffer = execFileSync(bin, ["--version"], ({
+      stdio: "pipe"
+    }));
+    versionOutput = result.toString("utf-8");
+    versionOk = true;
   }
   catch (e) {
-    throw new Error((("tool '" + name) + "' not found or --version failed"));
+    versionOk = false;
   }
-  return hashBytes(result.toString("utf-8"));
+  if (versionOk) {
+    return hashBytes(versionOutput);
+  }
+  if (existsSync(bin)) {
+    return hashFileContents(bin);
+  }
+  throw new Error((("tool '" + name) + "' not found"));
 }

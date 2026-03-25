@@ -1,0 +1,5 @@
+(program
+  (import {Command} "commander")
+  (const (prog) (new Command))
+  ((. prog name) "test")
+)

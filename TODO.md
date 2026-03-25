@@ -1,0 +1,7 @@
+- [x] use npm library `commander` to handle cli arguments.
+- [x] support verbose `--help`.
+- [x] verbose help must explain what each command actually does.
+- [x] verbose help must explain what a `target` is.
+- [x] support command line argument for specifying which .shk file to read as the build script.
+- [x] verbose help must explain that the implicit, default build file is build.{shk,ts,js}.
+- [x] support a command to list all targets.

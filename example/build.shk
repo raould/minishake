@@ -3,15 +3,14 @@
 
   (export-default (fn ((shk : any))
     ((. shk rule) {
-      "name": "compile"
-      "output": "dist/uses.js"
-      "deps" : [
-        { "kind": "file", "path": "src/core.ts" },
-        { "kind": "file", "path": "src/uses.ts" },
-        { "kind": "tool", "name": "tsc" }
+      name: "compile"
+      output: "dist/uses.js"
+      deps: [
+        { kind: "file" path: "src/core.ts" }
+        { kind: "file" path: "src/uses.ts" }
+        { kind: "tool" name: "tsc" }
       ]
-      "action": (async-fn ((ctx : any))
-        (await ((. ctx run) "./node_modules/.bin/tsc" (array "--project" "tsconfig.json")))
-      )
+      action: (async-fn ((ctx : any))
+        (await ((. ctx run) "./node_modules/.bin/tsc" ["--project" "tsconfig.json"])))
     })))
 )

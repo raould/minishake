@@ -1,0 +1,1 @@
+(program (const (x) (. import meta)) (export x))

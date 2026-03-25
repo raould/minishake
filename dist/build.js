@@ -121,7 +121,7 @@ const doRebuild = async function (graph, prev, nodeId, visiting, visited, logWri
     visiting.delete(nodeId);
     visited.add(nodeId);
 };
-export const build = async function (graph, targetName, projectRoot) {
+export const coreBuild = async function (graph, targetName, projectRoot) {
     const targetId = ("rule:" + targetName);
     if ((!graph.nodes.has(targetId))) {
         throw new Error(("unknown rule: " + targetName));

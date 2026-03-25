@@ -123,7 +123,7 @@
 
   ;; ── build ──────────────────────────────────────
 
-  (export build (async-fn ((graph : BuildGraph) (targetName : string) (projectRoot : string))
+  (export coreBuild (async-fn ((graph : BuildGraph) (targetName : string) (projectRoot : string))
     (const (targetId : NodeId) (+ "rule:" targetName))
     (if (! ((. (. graph nodes) has) targetId))
       (then (throw (new Error (+ "unknown rule: " targetName)))))

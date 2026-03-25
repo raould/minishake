@@ -12,6 +12,10 @@ const SRC      = path.join(ROOT, "src");
 const BUILD_TS = path.join(ROOT, "build", "ts");
 const T2TC     = path.join(ROOT, "node_modules", ".bin", "t2tc");
 
+// Ensure node_modules/.bin is on PATH so shebangs (e.g. #!/usr/bin/env tsx) resolve.
+const BIN_DIR  = path.join(ROOT, "node_modules", ".bin");
+const ENV      = { ...process.env, PATH: BIN_DIR + path.delimiter + (process.env.PATH || "") };
+
 // Step 1: t2 → TypeScript
 console.log("Stage 0: compiling t2 → TypeScript...");
 mkdirSync(BUILD_TS, { recursive: true });
@@ -21,6 +25,7 @@ for (const f of t2Files) {
   console.log(`  ${f}`);
   execFileSync(T2TC, [src, "--outDir", BUILD_TS], {
     stdio: "inherit",
+    env: ENV,
   });
 }
 
@@ -35,6 +40,8 @@ for (const f of tsFiles) {
   let content = readFileSync(filePath, "utf-8");
   // Fix .t2 extensions in import type statements → .js
   content = content.replace(/from "(\.\/[^"]+)\.t2"/g, 'from "$1.js"');
+  // Replace __SHK_DIRNAME__ sentinel with import.meta.dirname
+  content = content.replace(/"__SHK_DIRNAME__"/g, 'import.meta.dirname');
   writeFileSync(filePath, content);
 }
 
@@ -43,6 +50,14 @@ console.log("Stage 0: compiling TypeScript → JavaScript...");
 execFileSync("npx", ["tsc", "--project", "tsconfig.json"], {
   cwd: ROOT,
   stdio: "inherit",
+  env: ENV,
 });
+
+// Step 3: Add shebang to cli.js for npx/bin support
+const cliPath = path.join(ROOT, "dist", "cli.js");
+const cliContent = readFileSync(cliPath, "utf-8");
+if (!cliContent.startsWith("#!")) {
+  writeFileSync(cliPath, "#!/usr/bin/env node\n" + cliContent);
+}
 
 console.log("Stage 0 bootstrap complete: dist/ ready");

@@ -1,0 +1,47 @@
+(program
+  ;; build.shk — MiniShake self-hosting build file.
+
+  (import {readdirSync readFileSync writeFileSync} "node:fs")
+  (import path "node:path")
+
+  (export-default (fn ((shk : any))
+
+    ;; Rule 1: t2 → TypeScript
+    ((. shk rule) (object
+      (name "t2-compile")
+      (output "build/ts/cli.ts")
+      (deps (array
+        (object (kind "glob") (pattern "src/**/*.t2"))
+        (object (kind "tool") (name "t2tc"))))
+      (action (async-fn ((ctx : any))
+        (const (srcDir : string) ((. path join) (. ctx projectRoot) "src"))
+        (const (outDir : string) ((. path join) (. ctx projectRoot) "build" "ts"))
+        (const (t2Files : (type-array string))
+          ((. (readdirSync srcDir) filter) (fn ((f : string)) (return ((. f endsWith) ".t2")))))
+        (for-of f t2Files
+          (await ((. ctx run) "./node_modules/.bin/t2tc"
+            (array ((. path join) srcDir f) "--outDir" outDir))))
+        (const (tsFiles : (type-array string))
+          ((. (readdirSync outDir) filter) (fn ((f : string)) (return ((. f endsWith) ".ts")))))
+        (for-of f tsFiles
+          (const (fp : string) ((. path join) outDir f))
+          (let (c : string) (readFileSync fp "utf-8"))
+          (set! c ((. c replace) (new RegExp "from \"(\\./[^\"]+)\\.t2\"" "g") "from \"$1.js\""))
+          (set! c ((. c replace) (new RegExp "\"__SHK_DIRNAME__\"" "g") "import.meta.dirname"))
+          (writeFileSync fp c))))))
+
+    ;; Rule 2: TypeScript → JavaScript
+    ((. shk rule) (object
+      (name "ts-compile")
+      (output "dist/cli.js")
+      (deps (array
+        (object (kind "rule") (name "t2-compile"))
+        (object (kind "file") (path "tsconfig.json"))
+        (object (kind "tool") (name "tsc"))))
+      (action (async-fn ((ctx : any))
+        (await ((. ctx run) "./node_modules/.bin/tsc" (array "--project" "tsconfig.json")))
+        (const (cliPath : string) ((. path join) (. ctx projectRoot) "dist" "cli.js"))
+        (const (cliContent : string) (readFileSync cliPath "utf-8"))
+        (if (! ((. cliContent startsWith) "#!"))
+          (then
+            (writeFileSync cliPath (+ "#!/usr/bin/env node\n" cliContent)))))))))))

@@ -1,4 +1,5 @@
-import { rmSync } from "node:fs";
+#!/usr/bin/env node
+import { rmSync, existsSync } from "node:fs";
 import path from "node:path";
 import { buildGraphFromRules } from "./rule.js";
 import { build, refreshAllSourceHashes } from "./build.js";
@@ -6,6 +7,18 @@ import { loadGraph } from "./persist.js";
 import { loadBuildFile } from "./loader.js";
 import { explainStaleness } from "./explain.js";
 import { emitMermaid } from "./mermaid.js";
+function findBuildFile(projectRoot) {
+    if (existsSync(path.join(projectRoot, "build.shk"))) {
+        return "build.shk";
+    }
+    if (existsSync(path.join(projectRoot, "build.ts"))) {
+        return "build.ts";
+    }
+    if (existsSync(path.join(projectRoot, "build.js"))) {
+        return "build.js";
+    }
+    throw new Error("no build file found (expected build.shk, build.ts, or build.js)");
+}
 const main = async function () {
     const args = process.argv.slice(2);
     const command = (args[0] ?? "");
@@ -16,7 +29,7 @@ const main = async function () {
             console.error("usage: shk build <target>");
             process.exit(1);
         }
-        let buildFile = "build.ts";
+        const buildFile = findBuildFile(projectRoot);
         const rules = (await loadBuildFile(buildFile, projectRoot));
         const graph = buildGraphFromRules(rules, projectRoot);
         (await build(graph, targetName, projectRoot));
@@ -37,7 +50,7 @@ const main = async function () {
             console.error("usage: shk explain <target>");
             process.exit(1);
         }
-        let buildFile = "build.ts";
+        const buildFile = findBuildFile(projectRoot);
         const rules = (await loadBuildFile(buildFile, projectRoot));
         const currentGraph = buildGraphFromRules(rules, projectRoot);
         refreshAllSourceHashes(currentGraph, projectRoot);

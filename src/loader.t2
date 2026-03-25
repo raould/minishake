@@ -1,15 +1,21 @@
 (program
   ;; loader.t2 — Build file loading and rule collection.
+  ;; Supports .shk (t2 source), .ts, and .js build files.
 
   (import {pathToFileURL} "node:url")
   (import path "node:path")
+  (import {existsSync mkdirSync readFileSync writeFileSync} "node:fs")
+  (import {execFileSync} "node:child_process")
 
   (import-type (named PosixPath) "./paths.t2")
   (import-type (named Rule Dep) "./rule.t2")
 
   ;; Workaround: t2 has no dynamic import() expression.
-  ;; Use Function constructor to access it without conflicting with the keyword.
   (const dynamicImport (type-as (new Function "specifier" "return import(specifier)") (tfn ((specifier string)) (type-app Promise any))))
+
+  ;; Placeholder: replaced by bootstrap fixup with import.meta.dirname.
+  ;; The string "__SHK_DIRNAME__" is a sentinel that the fixup step replaces.
+  (const (__shkDirname : string) "__SHK_DIRNAME__")
 
   ;; ── RuleCollector ──────────────────────────────
   ;; Captures rule definitions from a build file module.
@@ -27,15 +33,101 @@
           (then (throw (new Error (+ "rule " (. def name) " has no output")))))
         ((. (. this rules) push) def)))))
 
+  ;; ── compileShkFile ───────────────────────────
+  ;; Compiles a .shk build file to .js via t2tc + tsc.
+  ;; Output goes into .shk/build-file/ so it can be dynamically imported.
+
+  (fn compileShkFile ((shkPath : string) (projectRoot : string)) : string
+    (const (tsDir : string) ((. path join) projectRoot ".shk" "build-file" "ts"))
+    (const (jsDir : string) ((. path join) projectRoot ".shk" "build-file" "js"))
+    (mkdirSync tsDir (object (recursive true)))
+    (mkdirSync jsDir (object (recursive true)))
+
+    ;; Resolve minishake's own root (this file is dist/loader.js)
+    (const (shkRoot : string) __shkDirname)
+    (const (shkNodeModules : string) ((. path resolve) shkRoot ".." "node_modules"))
+
+    ;; Ensure both minishake's and project's node_modules/.bin are on PATH
+    ;; so shebangs (e.g. #!/usr/bin/env tsx) resolve.
+    (const (shkBinDir : string) ((. path join) shkNodeModules ".bin"))
+    (const (projBinDir : string) ((. path join) projectRoot "node_modules" ".bin"))
+    (const (execEnv : any) (Object.assign (object) (. process env)
+      (object (PATH (+ shkBinDir (. path delimiter) projBinDir (. path delimiter) (?? (. (. process env) PATH) ""))))))
+
+    ;; Step 1: t2tc — compile .shk → .ts
+    ;; Look for t2tc in minishake's deps first, then project's, then PATH
+    (let (t2tcBin : string) ((. path join) shkBinDir "t2tc"))
+    (if (! (existsSync t2tcBin))
+      (then (set! t2tcBin ((. path join) projBinDir "t2tc"))))
+    (if (! (existsSync t2tcBin))
+      (then (set! t2tcBin "t2tc")))
+    (execFileSync t2tcBin (array shkPath "--outDir" tsDir "--t2ext" "shk") (object (stdio "pipe") (env execEnv)))
+
+    ;; Step 2: fix import paths in generated .ts (.t2 → .js, .shk → .js)
+    (const (baseName : string) ((. ((. path basename) shkPath) replace) (new RegExp "\\.shk$") ""))
+    (const (tsPath : string) ((. path join) tsDir (+ baseName ".ts")))
+    (let (content : string) (readFileSync tsPath "utf-8"))
+    (set! content ((. content replace) (new RegExp "from \"(\\./[^\"]+)\\.t2\"" "g") "from \"$1.js\""))
+    (set! content ((. content replace) (new RegExp "from \"(\\./[^\"]+)\\.shk\"" "g") "from \"$1.js\""))
+    (writeFileSync tsPath content)
+
+    ;; Step 3: tsc — compile .ts → .js
+    ;; Use a minimal inline tsconfig for the build file
+    (const (tsconfigPath : string) ((. path join) tsDir "tsconfig.build-file.json"))
+    ;; Resolve @types/node from either project or minishake's node_modules
+    (const (typeRoots : (type-array string)) (array))
+    (const (projTypes : string) ((. path join) projectRoot "node_modules" "@types"))
+    (if (existsSync projTypes)
+      (then ((. typeRoots push) projTypes)))
+    (const (shkTypes : string) ((. path join) shkNodeModules "@types"))
+    (if (existsSync shkTypes)
+      (then ((. typeRoots push) shkTypes)))
+
+    (const (tsconfig) (JSON.stringify (object
+      (compilerOptions (object
+        (module "nodenext")
+        (target "es2022")
+        (outDir jsDir)
+        (rootDir tsDir)
+        (strict false)
+        (skipLibCheck true)
+        (moduleDetection "force")
+        (esModuleInterop true)
+        (types (array "node"))
+        (typeRoots typeRoots)))
+      (include (array ((. path join) tsDir "*.ts"))))))
+    (writeFileSync tsconfigPath tsconfig)
+
+    ;; Resolve tsc: project's node_modules first, then minishake's, then PATH
+    (let (tsc : string) ((. path join) projBinDir "tsc"))
+    (if (! (existsSync tsc))
+      (then (set! tsc ((. path join) shkBinDir "tsc"))))
+    (if (! (existsSync tsc))
+      (then (set! tsc "tsc")))
+    (execFileSync tsc (array "--project" tsconfigPath) (object (stdio "pipe") (env execEnv)))
+
+    ;; Return path to the compiled .js file
+    (return ((. path join) jsDir (+ baseName ".js"))))
+
   ;; ── loadBuildFile ──────────────────────────────
-  ;; Loads a build file (.ts or .js) and returns the collected rules.
-  ;; MVP: plain .ts/.js that exports a default function receiving a RuleCollector.
+  ;; Loads a build file and returns the collected rules.
+  ;; Supports .shk (t2 source compiled on-the-fly), .ts, and .js files.
 
   (export loadBuildFile (async-fn ((filePath : string) (projectRoot : string))
-    (const (absPath : string) ((. path resolve) projectRoot filePath))
-    (const (fileUrl : string) ((. (pathToFileURL absPath) toString)))
-    (const (mod : any) (await (dynamicImport fileUrl)))
+    (let (importPath : string) "")
 
+    (if ((. filePath endsWith) ".shk")
+      (then
+        ;; Compile .shk → .js, then import the result
+        (const (absPath : string) ((. path resolve) projectRoot filePath))
+        (const (jsPath : string) (compileShkFile absPath projectRoot))
+        (set! importPath ((. (pathToFileURL jsPath) toString))))
+      (else
+        ;; .ts or .js — import directly
+        (const (absPath : string) ((. path resolve) projectRoot filePath))
+        (set! importPath ((. (pathToFileURL absPath) toString)))))
+
+    (const (mod : any) (await (dynamicImport importPath)))
     (const (collector) (new RuleCollector))
 
     ;; The module should export a default function that registers rules

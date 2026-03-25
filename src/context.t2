@@ -5,6 +5,7 @@
   (import {readFile writeFile} "node:fs/promises")
   (import {execFile} "node:child_process")
   (import {promisify} "node:util")
+  (import path "node:path")
 
   (import-type (named PosixPath) "./paths.t2")
   (import {toNative} "./paths.t2")
@@ -39,12 +40,16 @@
         (set! (. this logWriter) logWriter))
 
       ;; Run an external tool
+      ;; Ensures node_modules/.bin is on PATH for shebang resolution.
       (method async run ((tool : string) (args : (type-array string))) (returns (type-app Promise RunResult))
         ((. (. this logWriter) write) (object
           (kind "command-run") (rule (. this nodeId)) (tool tool) (args args) (time (Date.now))))
+        (const (binDir : string) ((. path join) (. this projectRoot) "node_modules" ".bin"))
+        (const (execEnv : any) (Object.assign (object) (. process env)
+          (object (PATH (+ binDir (. path delimiter) (?? (. (. process env) PATH) ""))))))
         (let (result : any) null)
         (try
-          (set! result (await (execFileAsync tool args (object (cwd (. this projectRoot))))))
+          (set! result (await (execFileAsync tool args (object (cwd (. this projectRoot)) (env execEnv)))))
           (catch e
             (const (err : any) e)
             (throw (new BuildError (. this nodeId) tool (|| (. err stderr) (. err stdout) (. err message) "unknown error")))))

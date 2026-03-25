@@ -2,6 +2,7 @@ import { cpSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import path from "node:path";
 import { toNative } from "./paths.js";
 import { addEdge } from "./graph.js";
 import { BuildError } from "./errors.js";
@@ -25,10 +26,15 @@ export class BuildContext {
             args: args,
             time: Date.now()
         }));
+        const binDir = path.join(this.projectRoot, "node_modules", ".bin");
+        const execEnv = Object.assign(({}), process.env, ({
+            PATH: ((binDir + path.delimiter) + (process.env.PATH ?? ""))
+        }));
         let result = null;
         try {
             result = (await execFileAsync(tool, args, ({
-                cwd: this.projectRoot
+                cwd: this.projectRoot,
+                env: execEnv
             })));
         }
         catch (e) {

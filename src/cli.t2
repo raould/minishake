@@ -1,7 +1,7 @@
 (program
   ;; cli.t2 — CLI entry point for MiniShake.
 
-  (import {rmSync} "node:fs")
+  (import {rmSync existsSync} "node:fs")
   (import path "node:path")
 
   (import {BuildGraph} "./graph.t2")
@@ -11,6 +11,18 @@
   (import {loadBuildFile} "./loader.t2")
   (import {explainStaleness} "./explain.t2")
   (import {emitMermaid} "./mermaid.t2")
+
+  ;; ── findBuildFile ─────────────────────────────
+  ;; Searches for build.shk, then build.ts, then build.js in the project root.
+
+  (fn findBuildFile ((projectRoot : string)) : string
+    (if (existsSync ((. path join) projectRoot "build.shk"))
+      (then (return "build.shk")))
+    (if (existsSync ((. path join) projectRoot "build.ts"))
+      (then (return "build.ts")))
+    (if (existsSync ((. path join) projectRoot "build.js"))
+      (then (return "build.js")))
+    (throw (new Error "no build file found (expected build.shk, build.ts, or build.js)")))
 
   ;; ── main ───────────────────────────────────────
 
@@ -27,7 +39,7 @@
             ((. console error) "usage: shk build <target>")
             ((. process exit) 1)))
         ;; MVP: look for build.ts or build.js in project root
-        (let (buildFile : string) "build.ts")
+        (const (buildFile : string) (findBuildFile projectRoot))
         (const (rules) (await (loadBuildFile buildFile projectRoot)))
         (const (graph) (buildGraphFromRules rules projectRoot))
         (await (build graph targetName projectRoot))
@@ -50,7 +62,7 @@
           (then
             ((. console error) "usage: shk explain <target>")
             ((. process exit) 1)))
-        (let (buildFile : string) "build.ts")
+        (const (buildFile : string) (findBuildFile projectRoot))
         (const (rules) (await (loadBuildFile buildFile projectRoot)))
         (const (currentGraph) (buildGraphFromRules rules projectRoot))
         (refreshAllSourceHashes currentGraph projectRoot)

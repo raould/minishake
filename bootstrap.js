@@ -53,8 +53,8 @@ execFileSync("npx", ["tsc", "--project", "tsconfig.json"], {
   env: ENV,
 });
 
-// Step 3: Add shebang to cli.js for npx/bin support
-const cliPath = path.join(ROOT, "dist", "cli.js");
+// Step 3: Add shebang to shk.js for npx/bin support
+const cliPath = path.join(ROOT, "dist", "shk.js");
 const cliContent = readFileSync(cliPath, "utf-8");
 if (!cliContent.startsWith("#!")) {
   writeFileSync(cliPath, "#!/usr/bin/env node\n" + cliContent);

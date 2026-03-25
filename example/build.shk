@@ -2,12 +2,16 @@
   ;; build.shk — MiniShake build rules for the example project.
 
   (export-default (fn ((shk : any))
-    ((. shk rule) (object
-      (name "compile")
-      (output "dist/uses.js")
-      (deps (array
-        (object (kind "file") (path "src/core.ts"))
-        (object (kind "file") (path "src/uses.ts"))
-        (object (kind "tool") (name "tsc"))))
-      (action (async-fn ((ctx : any))
-        (await ((. ctx run) "./node_modules/.bin/tsc" (array "--project" "tsconfig.json"))))))))))
+    ((. shk rule) {
+      "name": "compile"
+      "output": "dist/uses.js"
+      "deps" : [
+        { "kind": "file", "path": "src/core.ts" },
+        { "kind": "file", "path": "src/uses.ts" },
+        { "kind": "tool", "name": "tsc" }
+      ]
+      "action": (async-fn ((ctx : any))
+        (await ((. ctx run) "./node_modules/.bin/tsc" (array "--project" "tsconfig.json")))
+      )
+    })))
+)

@@ -9,7 +9,7 @@
     ;; Rule 1: t2 → TypeScript
     ((. shk rule) (object
       (name "t2-compile")
-      (output "build/ts/cli.ts")
+      (output "build/ts/shk.ts")
       (deps (array
         (object (kind "glob") (pattern "src/**/*.t2"))
         (object (kind "tool") (name "t2tc"))))
@@ -33,14 +33,14 @@
     ;; Rule 2: TypeScript → JavaScript
     ((. shk rule) (object
       (name "ts-compile")
-      (output "dist/cli.js")
+      (output "dist/shk.js")
       (deps (array
         (object (kind "rule") (name "t2-compile"))
         (object (kind "file") (path "tsconfig.json"))
         (object (kind "tool") (name "tsc"))))
       (action (async-fn ((ctx : any))
         (await ((. ctx run) "./node_modules/.bin/tsc" (array "--project" "tsconfig.json")))
-        (const (cliPath : string) ((. path join) (. ctx projectRoot) "dist" "cli.js"))
+        (const (cliPath : string) ((. path join) (. ctx projectRoot) "dist" "shk.js"))
         (const (cliContent : string) (readFileSync cliPath "utf-8"))
         (if (! ((. cliContent startsWith) "#!"))
           (then

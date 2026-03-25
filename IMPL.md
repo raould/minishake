@@ -1078,7 +1078,7 @@ prerequisite.
 
   ;; Rule: compile t2 source → TypeScript
   (shk/rule t2-compile
-    (output "dist/cli.ts")     ;; primary output (representative)
+    (output "dist/shk.ts")     ;; primary output (representative)
     (deps   "src/**/*.t2" (tool t2))
     (async-lambda (ctx)
       ;; compile each .t2 file to .ts in dist/
@@ -1086,7 +1086,7 @@ prerequisite.
 
   ;; Rule: compile TypeScript → JavaScript + declarations
   (shk/rule ts-compile
-    (output "dist/cli.js")     ;; primary output (representative)
+    (output "dist/shk.js")     ;; primary output (representative)
     (deps   t2-compile "tsconfig.json" (tool tsc))
     (async-lambda (ctx)
       (await (. ctx (run "tsc" (array)))))))
@@ -1098,13 +1098,13 @@ prerequisite.
 ```
 npm install                    # install t2lang, typescript
 node bootstrap.js              # Stage 0: seed build → dist/
-node dist/cli.js build ts-compile  # Stage 1: self-build → dist-stage1/
+node dist/shk.js build ts-compile  # Stage 1: self-build → dist-stage1/
 diff -r dist/ dist-stage1/     # Stage 2: verify reproducibility
 ```
 
 **Day-to-day development:**
 ```
-shk build ts-compile           # uses the already-compiled dist/cli.js
+shk build ts-compile           # uses the already-compiled dist/shk.js
 ```
 
 **CI reproducibility check:**
@@ -1173,7 +1173,7 @@ src/
   persist.t2      — saveGraph(), loadGraph() (atomic write via rename)
   explain.t2      — explainStaleness(), refreshAllSourceHashes()
   loader.t2       — loadBuildFile(), RuleCollector
-  cli.t2          — main() entry point, arg parsing
+  shk.t2          — main() entry point, arg parsing
   log.t2          — LogEntry, LogWriter
   mermaid.t2      — emitMermaid(), sanitize()
   errors.t2       — BuildError, CycleError, collectCyclePath()

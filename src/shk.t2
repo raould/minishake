@@ -1,5 +1,5 @@
 (program
-  ;; cli.t2 — CLI entry point for MiniShake.
+  ;; shk.t2 — CLI entry point for MiniShake.
 
   (import {rmSync existsSync} "node:fs")
   (import path "node:path")

@@ -16,7 +16,7 @@
     "bootstrap": "node bootstrap.js",
     "build": "node dist/shk.js build ts-compile",
     "verify": "node bootstrap.js && cp -r dist dist-stage0 && rm -rf .shk build/ts dist && node bootstrap.js && node dist/shk.js build ts-compile && diff -r dist-stage0 dist && rm -rf dist-stage0 && echo 'Stage 2: PASS — bootstrap is reproducible'",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run"
   },
   "dependencies": {
     "commander": "^14.0.3",
@@ -26,6 +26,7 @@
     "@types/commander": "^2.12.0",
     "@types/node": "^25.5.0",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.2"
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.1"
   }
 }
